@@ -1,7 +1,7 @@
 # tradelocker/api.py
 """
-Asynchronous TradeLocker API client for market data and order execution.
-Compatible with TradeLocker REST API v2 (adjust endpoints if needed).
+Asynchronous TradeLocker and Tradovate API client for market data and order execution.
+Compatible with Tradovate REST/TradeLocker REST API v2 (adjust endpoints if needed).
 
 Requires: aiohttp, websockets
 """
