@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Convenience script for running the TradeLocker Trading System.
+Convenience script for running the Tradovate Trading System.
 Compatible with Python 3.11+
 """
 import os
