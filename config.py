@@ -1,6 +1,6 @@
 # config.py
 """
-Configuration loader for the TradeLocker Trading System.
+Configuration loader for the Tradovate Trading System.
 Loads settings primarily from config.ini, providing minimal code defaults.
 Handles type conversions and structure mapping.
 """
