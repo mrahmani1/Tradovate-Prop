@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Main entry point for the TradeLocker Futures Trading System.
+Main entry point for the Trdovate Trading System.
 Initializes and runs the core trading components.
 """
 import argparse
