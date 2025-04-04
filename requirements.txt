@@ -1,0 +1,34 @@
+# Core
+numpy
+pandas
+aiohttp >= 3.8.0
+websockets >= 10.0
+requests
+
+# Machine Learning & Stats
+scikit-learn
+xgboost
+joblib
+tensorflow
+statsmodels
+arch
+
+# Plotting & Analytics
+matplotlib
+
+# Technical Analysis Library
+pandas-ta
+
+# Trading & Technical Analysis
+# vectorbt # If used for backtesting/analysis
+
+# Configuration & Logging
+configparser
+
+# Add Tradovate API library
+tradovate-api # Adjust version if needed, e.g., tradovate-api>=1.0
+
+# For development/testing
+# pytest
+# flake8
+# black

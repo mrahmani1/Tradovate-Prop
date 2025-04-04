@@ -1,0 +1,465 @@
+# utils/helpers.py
+import datetime
+import logging
+from typing import Dict, List, Any, Optional, Union, Tuple
+
+import numpy as np
+import pandas as pd
+# Import pandas_ta
+import pandas_ta as ta
+
+logger = logging.getLogger(__name__)
+
+# --- General Utilities ---
+
+def deep_merge(dict1: Dict, dict2: Dict) -> Dict:
+    """
+    Deep merge two dictionaries. dict2 values take precedence over dict1.
+    Modifies dict1 in place and returns it.
+
+    Args:
+        dict1: The base dictionary (will be modified).
+        dict2: The dictionary to merge into dict1.
+
+    Returns:
+        The merged dictionary (dict1).
+    """
+    for key, value in dict2.items():
+        if key in dict1:
+            if isinstance(dict1[key], dict) and isinstance(value, dict):
+                deep_merge(dict1[key], value) # Recursive call
+            elif dict1[key] != value:
+                dict1[key] = value # Overwrite
+        else:
+            dict1[key] = value # Add new key
+    return dict1
+
+# --- Technical Indicator Calculations (Using pandas-ta) ---
+
+def calculate_ema(prices: Union[List[float], np.ndarray, pd.Series], period: int) -> Optional[float]:
+    """
+    Calculate Exponential Moving Average (EMA) using pandas_ta.
+
+    Args:
+        prices: List, numpy array, or Pandas Series of prices.
+        period: EMA period.
+
+    Returns:
+        The latest EMA value, or None if not enough data or error.
+    """
+    if not isinstance(prices, pd.Series):
+        prices = pd.Series(prices, dtype=float) # Convert to Pandas Series
+
+    if len(prices) < period:
+        # logger.debug(f"Not enough data ({len(prices)}) for EMA period {period}")
+        return None
+    if period <= 0:
+         logger.warning(f"EMA period must be positive, got {period}")
+         return None
+
+    try:
+        # Calculate EMA using pandas_ta
+        ema_series = prices.ta.ema(length=period, append=False) # append=False returns only the indicator series
+        if ema_series is None or ema_series.empty:
+            return None
+        # Get the last non-NaN value
+        last_ema = ema_series.dropna().iloc[-1] if not ema_series.dropna().empty else None
+        return float(last_ema) if last_ema is not None and pd.notna(last_ema) else None
+    except Exception as e:
+        logger.error(f"Error calculating EMA(period={period}): {e}")
+        return None
+
+def calculate_sma(prices: Union[List[float], np.ndarray, pd.Series], period: int) -> Optional[float]:
+    """
+    Calculate Simple Moving Average (SMA) using pandas_ta.
+
+    Args:
+        prices: List, numpy array, or Pandas Series of prices.
+        period: SMA period.
+
+    Returns:
+        The latest SMA value, or None if not enough data or error.
+    """
+    if not isinstance(prices, pd.Series):
+        prices = pd.Series(prices, dtype=float)
+
+    if len(prices) < period:
+        # logger.debug(f"Not enough data ({len(prices)}) for SMA period {period}")
+        return None
+    if period <= 0:
+         logger.warning(f"SMA period must be positive, got {period}")
+         return None
+
+    try:
+        sma_series = prices.ta.sma(length=period, append=False)
+        if sma_series is None or sma_series.empty:
+            return None
+        last_sma = sma_series.dropna().iloc[-1] if not sma_series.dropna().empty else None
+        return float(last_sma) if last_sma is not None and pd.notna(last_sma) else None
+    except Exception as e:
+        logger.error(f"Error calculating SMA(period={period}): {e}")
+        return None
+
+
+def calculate_macd(
+    prices: Union[List[float], np.ndarray, pd.Series],
+    fast_period: int = 12,
+    slow_period: int = 26,
+    signal_period: int = 9
+) -> Optional[Tuple[float, float, float]]:
+    """
+    Calculate MACD (Moving Average Convergence Divergence) using pandas_ta.
+
+    Args:
+        prices: List, numpy array, or Pandas Series of closing prices.
+        fast_period: Period for fast EMA.
+        slow_period: Period for slow EMA.
+        signal_period: Period for signal line EMA.
+
+    Returns:
+        Tuple of (latest_macd_line, latest_signal_line, latest_histogram), or None if not enough data or error.
+    """
+    if not isinstance(prices, pd.Series):
+        prices = pd.Series(prices, dtype=float)
+
+    # Estimate minimum length needed (can be complex, use a safe buffer)
+    min_len = slow_period + signal_period
+    if len(prices) < min_len:
+        # logger.debug(f"Not enough data ({len(prices)}) for MACD ({fast_period},{slow_period},{signal_period})")
+        return None
+
+    try:
+        # Calculate MACD using pandas_ta
+        # It returns a DataFrame with columns like MACD_12_26_9, MACDh_12_26_9, MACDs_12_26_9
+        macd_df = prices.ta.macd(fast=fast_period, slow=slow_period, signal=signal_period, append=False)
+
+        if macd_df is None or macd_df.empty:
+            return None
+
+        # Get the last row
+        last_values = macd_df.iloc[-1]
+
+        # Extract values using the column names generated by pandas-ta
+        macd_col = f"MACD_{fast_period}_{slow_period}_{signal_period}"
+        signal_col = f"MACDs_{fast_period}_{slow_period}_{signal_period}"
+        hist_col = f"MACDh_{fast_period}_{slow_period}_{signal_period}"
+
+        latest_macd = last_values.get(macd_col)
+        latest_signal = last_values.get(signal_col)
+        latest_hist = last_values.get(hist_col)
+
+        # Check if any value is NaN
+        if pd.isna(latest_macd) or pd.isna(latest_signal) or pd.isna(latest_hist):
+            return None
+
+        return float(latest_macd), float(latest_signal), float(latest_hist)
+    except Exception as e:
+        logger.error(f"Error calculating MACD({fast_period},{slow_period},{signal_period}): {e}")
+        return None
+
+
+def calculate_ppo(
+    prices: Union[List[float], np.ndarray, pd.Series],
+    fast_period: int = 12,
+    slow_period: int = 26,
+    signal_period: int = 9
+) -> Optional[Tuple[float, float, float]]:
+    """
+    Calculate PPO (Percentage Price Oscillator) using pandas_ta.
+
+    Args:
+        prices: List, numpy array, or Pandas Series of closing prices.
+        fast_period: Period for fast EMA.
+        slow_period: Period for slow EMA.
+        signal_period: Period for signal line EMA.
+
+    Returns:
+        Tuple of (latest_ppo_line, latest_signal_line, latest_histogram), or None if not enough data or error.
+    """
+    if not isinstance(prices, pd.Series):
+        prices = pd.Series(prices, dtype=float)
+
+    min_len = slow_period + signal_period
+    if len(prices) < min_len:
+        # logger.debug(f"Not enough data ({len(prices)}) for PPO ({fast_period},{slow_period},{signal_period})")
+        return None
+
+    try:
+        # Calculate PPO using pandas_ta
+        # Returns DataFrame with columns like PPO_12_26_9, PPOh_12_26_9, PPOs_12_26_9
+        ppo_df = prices.ta.ppo(fast=fast_period, slow=slow_period, signal=signal_period, append=False)
+
+        if ppo_df is None or ppo_df.empty:
+            return None
+
+        last_values = ppo_df.iloc[-1]
+
+        ppo_col = f"PPO_{fast_period}_{slow_period}_{signal_period}"
+        signal_col = f"PPOs_{fast_period}_{slow_period}_{signal_period}"
+        hist_col = f"PPOh_{fast_period}_{slow_period}_{signal_period}"
+
+        latest_ppo = last_values.get(ppo_col)
+        latest_signal = last_values.get(signal_col)
+        latest_hist = last_values.get(hist_col)
+
+        if pd.isna(latest_ppo) or pd.isna(latest_signal) or pd.isna(latest_hist):
+            return None
+
+        return float(latest_ppo), float(latest_signal), float(latest_hist)
+    except Exception as e:
+        logger.error(f"Error calculating PPO({fast_period},{slow_period},{signal_period}): {e}")
+        return None
+
+
+def calculate_bollinger_bands(
+    prices: Union[List[float], np.ndarray, pd.Series],
+    period: int = 20,
+    num_std_dev: float = 2.0
+) -> Optional[Tuple[float, float, float]]:
+    """
+    Calculate Bollinger Bands using pandas_ta.
+
+    Args:
+        prices: List, numpy array, or Pandas Series of closing prices.
+        period: Moving average period.
+        num_std_dev: Number of standard deviations for the bands.
+
+    Returns:
+        Tuple of (latest_middle_band, latest_upper_band, latest_lower_band), or None if not enough data or error.
+    """
+    if not isinstance(prices, pd.Series):
+        prices = pd.Series(prices, dtype=float)
+
+    if len(prices) < period:
+        # logger.debug(f"Not enough data ({len(prices)}) for Bollinger Bands period {period}")
+        return None
+    if period <= 1:
+         logger.warning(f"Bollinger Bands period must be > 1, got {period}")
+         return None
+
+    try:
+        # Calculate Bollinger Bands using pandas_ta
+        # Returns DataFrame with columns like BBL_20_2.0, BBM_20_2.0, BBU_20_2.0
+        bbands_df = prices.ta.bbands(length=period, std=num_std_dev, append=False)
+
+        if bbands_df is None or bbands_df.empty:
+            return None
+
+        last_values = bbands_df.iloc[-1]
+
+        # Column names might vary slightly based on pandas-ta version, check documentation if needed
+        lower_col = f"BBL_{period}_{num_std_dev}"
+        middle_col = f"BBM_{period}_{num_std_dev}"
+        upper_col = f"BBU_{period}_{num_std_dev}"
+
+        latest_lower = last_values.get(lower_col)
+        latest_middle = last_values.get(middle_col)
+        latest_upper = last_values.get(upper_col)
+
+        if pd.isna(latest_lower) or pd.isna(latest_middle) or pd.isna(latest_upper):
+            return None
+
+        return float(latest_middle), float(latest_upper), float(latest_lower)
+    except Exception as e:
+        logger.error(f"Error calculating Bollinger Bands(period={period}, std={num_std_dev}): {e}")
+        return None
+
+
+def calculate_atr(
+    high_prices: Union[List[float], np.ndarray, pd.Series],
+    low_prices: Union[List[float], np.ndarray, pd.Series],
+    close_prices: Union[List[float], np.ndarray, pd.Series],
+    period: int = 14
+) -> Optional[float]:
+    """
+    Calculate Average True Range (ATR) using pandas_ta.
+
+    Args:
+        high_prices: List, numpy array, or Series of high prices.
+        low_prices: List, numpy array, or Series of low prices.
+        close_prices: List, numpy array, or Series of closing prices.
+        period: ATR period.
+
+    Returns:
+        The latest ATR value, or None if not enough data or error.
+    """
+    # Ensure inputs are Pandas Series
+    high = pd.Series(high_prices, dtype=float) if not isinstance(high_prices, pd.Series) else high_prices
+    low = pd.Series(low_prices, dtype=float) if not isinstance(low_prices, pd.Series) else low_prices
+    close = pd.Series(close_prices, dtype=float) if not isinstance(close_prices, pd.Series) else close_prices
+
+    if not (len(high) == len(low) == len(close)):
+        logger.error("ATR input Series must have the same length.")
+        return None
+    # ATR calculation needs period + 1 bars to calculate the first TR correctly
+    if len(close) < period + 1:
+        # logger.debug(f"Not enough data ({len(close)}) for ATR period {period}")
+        return None
+    if period <= 0:
+        logger.warning(f"ATR period must be positive, got {period}")
+        return None
+
+    try:
+        # Create a DataFrame for pandas_ta
+        df = pd.DataFrame({'high': high, 'low': low, 'close': close})
+
+        # Calculate ATR using pandas_ta
+        # Specify column names if they differ from 'high', 'low', 'close'
+        atr_series = df.ta.atr(length=period, append=False) # Column name like ATR_14
+
+        if atr_series is None or atr_series.empty:
+            return None
+
+        last_atr = atr_series.dropna().iloc[-1] if not atr_series.dropna().empty else None
+        return float(last_atr) if last_atr is not None and pd.notna(last_atr) else None
+    except Exception as e:
+        logger.error(f"Error calculating ATR(period={period}): {e}")
+        return None
+
+
+# --- Position Sizing & Formatting (Keep these as they are not indicator calculations) ---
+
+def get_instrument_details(instrument: str, config: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Retrieves details like pip multiplier and value for a given instrument from config.
+    (Implementation remains the same as previous refactoring)
+    """
+    details = {
+        'pip_multiplier': 10000.0, 'pip_value_per_lot': 10.0,
+        'tick_size': 0.00001, 'contract_size': 100000
+    }
+    # ... (rest of the default logic and config override logic remains the same) ...
+    instrument_upper = instrument.upper()
+    if 'JPY' in instrument_upper:
+        details['pip_multiplier'] = 100.0; details['tick_size'] = 0.001
+    elif 'XAU' in instrument_upper:
+        details['pip_multiplier'] = 10.0; details['pip_value_per_lot'] = 10.0
+        details['tick_size'] = 0.01; details['contract_size'] = 100
+    elif any(index in instrument_upper for index in ['US30', 'SPX500', 'NAS100']):
+        details['pip_multiplier'] = 1.0; details['tick_size'] = 0.1; details['contract_size'] = 1
+        if 'US30' in instrument_upper: details['pip_value_per_lot'] = 1.0
+        elif 'SPX500' in instrument_upper: details['pip_value_per_lot'] = 5.0
+        elif 'NAS100' in instrument_upper: details['pip_value_per_lot'] = 1.0
+        else: details['pip_value_per_lot'] = 1.0
+    # Override with specific config values
+    specs = config.get('instrument_specs', {}).get(instrument, {})
+    details['pip_multiplier'] = specs.get('pip_multiplier', details['pip_multiplier'])
+    details['pip_value_per_lot'] = specs.get('pip_value', details['pip_value_per_lot'])
+    details['tick_size'] = specs.get('tick_size', details['tick_size'])
+    details['contract_size'] = specs.get('contract_size', details['contract_size'])
+    return details
+
+
+def calculate_pip_distance(price1: float, price2: float, instrument: str, config: Dict[str, Any]) -> float:
+    """
+    Calculate distance between two prices in pips.
+    (Implementation remains the same)
+    """
+    try:
+        details = get_instrument_details(instrument, config)
+        pip_multiplier = details['pip_multiplier']
+        if pip_multiplier == 0: return 0.0
+        pip_size = 1.0 / pip_multiplier
+        distance = abs(price1 - price2) / pip_size
+        return distance
+    except Exception as e:
+        logger.error(f"Error calculating pip distance for {instrument}: {e}")
+        return 0.0
+
+
+def calculate_position_size(
+    account_balance: float, risk_percent: float, stop_loss_pips: float,
+    instrument: str, config: Dict[str, Any]
+) -> Optional[float]:
+    """
+    Calculate position size in lots based on risk percentage and stop loss in pips.
+    (Implementation remains the same)
+    """
+    if stop_loss_pips <= 0: logger.warning(f"Stop loss pips must be positive: {stop_loss_pips}"); return None
+    if account_balance <= 0: logger.warning("Account balance non-positive."); return None
+    if risk_percent <= 0: logger.warning("Risk percent must be positive."); return None
+    try:
+        risk_amount = account_balance * (risk_percent / 100.0)
+        details = get_instrument_details(instrument, config)
+        pip_value_per_lot = details['pip_value_per_lot']
+        if pip_value_per_lot <= 0: logger.error(f"Invalid pip value ({pip_value_per_lot}) for {instrument}."); return None
+
+        position_size_lots = risk_amount / (stop_loss_pips * pip_value_per_lot)
+        position_size_rounded = round(position_size_lots, 2)
+        final_position_size = max(position_size_rounded, 0.01) # Ensure minimum
+
+        # Optional: Cap position size
+        max_pos_size_overall = config.get('RISK_MANAGEMENT', {}).get('max_position_size_lots')
+        if max_pos_size_overall is not None and final_position_size > max_pos_size_overall:
+             logger.warning(f"Calculated size {final_position_size} exceeds overall max {max_pos_size_overall}. Capping.")
+             final_position_size = max_pos_size_overall
+
+        logger.debug(f"Calculated Position Size for {instrument}: Size={final_position_size:.2f} lots")
+        return final_position_size
+    except Exception as e:
+        logger.exception(f"Error calculating position size for {instrument}: {e}")
+        return None
+
+
+def format_price(price: float, instrument: str, config: Dict[str, Any]) -> str:
+    """
+    Format price according to instrument's typical decimal places based on tick size.
+    (Implementation remains the same)
+    """
+    try:
+        details = get_instrument_details(instrument, config)
+        tick_size = details['tick_size']
+        if tick_size <= 0: decimal_places = 5
+        else:
+             tick_str = f"{tick_size:.10f}".rstrip('0')
+             decimal_places = len(tick_str.split('.')[-1]) if '.' in tick_str else 0
+        format_str = f"{{:.{decimal_places}f}}"
+        return format_str.format(price)
+    except Exception as e:
+        logger.error(f"Error formatting price for {instrument}: {e}")
+        return f"{price:.5f}" # Fallback
+
+# --- Time-Based Helpers (Keep as they are) ---
+
+def is_market_open(instrument: str, config: Dict[str, Any], dt: Optional[datetime.datetime] = None) -> bool:
+    """
+    Check if market is likely open for an instrument at a given time (UTC).
+    (Implementation remains the same)
+    """
+    if dt is None: dt = datetime.datetime.now(datetime.timezone.utc)
+    elif dt.tzinfo is None: dt = dt.replace(tzinfo=datetime.timezone.utc)
+    else: dt = dt.astimezone(datetime.timezone.utc)
+    category = get_instrument_category(instrument)
+    weekday = dt.weekday(); hour = dt.hour
+    if category == 'crypto': return True
+    if category == 'forex':
+        if weekday == 5: return False # Sat
+        if weekday == 6 and hour < 21: return False # Sun before open
+        if weekday == 4 and hour >= 21: return False # Fri after close
+        return True
+    if category in ['indices', 'commodities', 'stocks']:
+        if weekday >= 5: return False # Weekend
+        if 6 <= hour < 21: return True # Broad check
+        else: return False
+    return False # Default closed
+
+def get_instrument_category(instrument: str) -> str:
+    """
+    Determine instrument category (forex, indices, commodities, crypto) based on name.
+    (Implementation remains the same)
+    """
+    # ... (logic remains the same as previous refactoring) ...
+    instrument_upper = instrument.upper()
+    forex_currencies = ['USD', 'EUR', 'GBP', 'JPY', 'AUD', 'NZD', 'CAD', 'CHF']
+    if len(instrument_upper) == 6 and all(c.isalpha() for c in instrument_upper):
+         if instrument_upper[:3] in forex_currencies and instrument_upper[3:] in forex_currencies: return 'forex'
+    elif len(instrument_upper) == 7 and instrument_upper.endswith('M'):
+         if instrument_upper[:3] in forex_currencies and instrument_upper[3:6] in forex_currencies: return 'forex'
+    indices = ['US30', 'SPX500', 'NAS100', 'UK100', 'GER30', 'DAX', 'JPN225', 'ASX200']
+    if any(index in instrument_upper for index in indices): return 'indices'
+    commodities = ['XAU', 'XAG', 'WTI', 'BRENT', 'OIL', 'NATGAS', 'COPPER']
+    if any(comm in instrument_upper for comm in commodities): return 'commodities'
+    cryptos = ['BTC', 'ETH', 'LTC', 'XRP', 'BCH', 'ADA', 'SOL', 'DOGE']
+    if any(crypto in instrument_upper for crypto in cryptos):
+         if instrument_upper.endswith(('USD', 'USDT', 'EUR', 'GBP', 'BTC')): return 'crypto'
+    return 'forex' # Default
